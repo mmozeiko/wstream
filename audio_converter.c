@@ -21,8 +21,10 @@
 
 #define MF_UNITS_PER_SECOND 10000000ULL
 
-void AudioConverter_Create(AudioConverter* Converter, const WAVEFORMATEX* InputFormat, uint32_t BufferSampleCount, uint32_t OutputChannels, uint32_t OutputSampleRate)
+void AudioConverter_Create(AudioConverter* Converter, const WAVEFORMATEX* InputFormat, uint32_t MaxInputSampleCount, uint32_t OutputChannels, uint32_t OutputSampleRate)
 {
+	HR(MFStartup(MF_VERSION, MFSTARTUP_LITE));
+
 	HR(CoCreateInstance(&CLSID_CResamplerMediaObject, NULL, CLSCTX_INPROC_SERVER, &IID_IMFTransform, &Converter->Transform));
 
 	WAVEFORMATEX OutputFormat =
@@ -35,28 +37,33 @@ void AudioConverter_Create(AudioConverter* Converter, const WAVEFORMATEX* InputF
 	OutputFormat.nBlockAlign = OutputFormat.nChannels * OutputFormat.wBitsPerSample / 8;
 	OutputFormat.nAvgBytesPerSec = OutputFormat.nSamplesPerSec * OutputFormat.nBlockAlign;
 
-	IMFMediaType* InputType;
-	HR(MFCreateMediaType(&InputType));
-	HR(MFInitMediaTypeFromWaveFormatEx(InputType, InputFormat, sizeof(*InputFormat) + InputFormat->cbSize));
-	HR(IMFTransform_SetInputType(Converter->Transform, 0, InputType, 0));
-	IMFMediaType_Release(InputType);
+	// set input type
+	{
+		IMFMediaType* InputType;
+		HR(MFCreateMediaType(&InputType));
+		HR(MFInitMediaTypeFromWaveFormatEx(InputType, InputFormat, sizeof(*InputFormat) + InputFormat->cbSize));
+		HR(IMFTransform_SetInputType(Converter->Transform, 0, InputType, 0));
+		IMFMediaType_Release(InputType);
+	}
 
-	IMFMediaType* OutputType;
-	HR(MFCreateMediaType(&OutputType));
-	HR(MFInitMediaTypeFromWaveFormatEx(OutputType, &OutputFormat, sizeof(OutputFormat)));
-	HR(IMFTransform_SetOutputType(Converter->Transform, 0, OutputType, 0));
-	IMFMediaType_Release(OutputType);
+	// set output type
+	{
+		IMFMediaType* OutputType;
+		HR(MFCreateMediaType(&OutputType));
+		HR(MFInitMediaTypeFromWaveFormatEx(OutputType, &OutputFormat, sizeof(OutputFormat)));
+		HR(IMFTransform_SetOutputType(Converter->Transform, 0, OutputType, 0));
+		IMFMediaType_Release(OutputType);
+	}
 
-	// verify that we can provide pre-allocated input & output memory
+	// verify input/ouput buffer properties
 	{
 		MFT_INPUT_STREAM_INFO InputInfo;
 		HR(IMFTransform_GetInputStreamInfo(Converter->Transform, 0, &InputInfo));
-		Assert((InputInfo.dwFlags & MFT_OUTPUT_STREAM_CAN_PROVIDE_SAMPLES) == 0);
 		Assert(InputInfo.cbAlignment <= 1);
 
 		MFT_OUTPUT_STREAM_INFO OutputInfo;
 		HR(IMFTransform_GetOutputStreamInfo(Converter->Transform, 0, &OutputInfo));
-		Assert((OutputInfo.dwFlags & MFT_OUTPUT_STREAM_CAN_PROVIDE_SAMPLES) == 0);
+		Assert((OutputInfo.dwFlags & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES) == 0);
 		Assert(OutputInfo.cbAlignment <= 1);
 	}
 
@@ -65,23 +72,11 @@ void AudioConverter_Create(AudioConverter* Converter, const WAVEFORMATEX* InputF
 		IMFSample* InputSample;
 		IMFMediaBuffer* InputBuffer;
 		HR(MFCreateSample(&InputSample));
-		HR(MFCreateMemoryBuffer(BufferSampleCount * InputFormat->nBlockAlign, &InputBuffer));
+		HR(MFCreateMemoryBuffer(MaxInputSampleCount * InputFormat->nBlockAlign, &InputBuffer));
 		HR(IMFSample_AddBuffer(InputSample, InputBuffer));
 
 		Converter->InputSample = InputSample;
 		Converter->InputBuffer = InputBuffer;
-	}
-
-	// allocate output
-	{
-		IMFSample* OutputSample;
-		IMFMediaBuffer* OutputBuffer;
-		HR(MFCreateSample(&OutputSample));
-		HR(MFCreateMemoryBuffer(BufferSampleCount * OutputFormat.nBlockAlign, &OutputBuffer));
-		HR(IMFSample_AddBuffer(OutputSample, OutputBuffer));
-
-		Converter->OutputSample = OutputSample;
-		Converter->OutputBuffer = OutputBuffer;
 	}
 
 	Converter->InputSampleSize = InputFormat->nBlockAlign;
@@ -92,10 +87,9 @@ void AudioConverter_Create(AudioConverter* Converter, const WAVEFORMATEX* InputF
 void AudioConverter_Destroy(AudioConverter* Converter)
 {
 	IMFTransform_Release(Converter->Transform);
-	IMFMediaBuffer_Release(Converter->OutputBuffer);
 	IMFMediaBuffer_Release(Converter->InputBuffer);
-	IMFSample_Release(Converter->OutputSample);
 	IMFSample_Release(Converter->InputSample);
+	HR(MFShutdown());
 }
 
 void AudioConverter_Flush(AudioConverter* Converter)
@@ -103,24 +97,24 @@ void AudioConverter_Flush(AudioConverter* Converter)
 	HR(IMFTransform_ProcessMessage(Converter->Transform, MFT_MESSAGE_COMMAND_DRAIN, 0));
 }
 
-void AudioConverter_SendInput(AudioConverter* Converter, uint64_t Time, uint64_t TimePeriod, const void* Samples, uint32_t SampleCount)
+void AudioConverter_ProcessInput(AudioConverter* Converter, uint64_t Time, uint64_t TimePeriod, const void* Samples, uint32_t SampleCount)
 {
+	uint32_t BufferSize = SampleCount * Converter->InputSampleSize;
+
 	BYTE* BufferData;
 	DWORD MaxLength;
 	HR(IMFMediaBuffer_Lock(Converter->InputBuffer, &BufferData, &MaxLength, NULL));
-
-	uint32_t BufferSize = SampleCount * Converter->InputSampleSize;
-	Assert(BufferSize <= MaxLength);
-
-	if (Samples)
 	{
-		CopyMemory(BufferData, Samples, BufferSize);
+		Assert(BufferSize <= MaxLength);
+		if (Samples)
+		{
+			CopyMemory(BufferData, Samples, BufferSize);
+		}
+		else
+		{
+			ZeroMemory(BufferData, BufferSize);
+		}
 	}
-	else
-	{
-		ZeroMemory(BufferData, BufferSize);
-	}
-
 	HR(IMFMediaBuffer_Unlock(Converter->InputBuffer));
 	HR(IMFMediaBuffer_SetCurrentLength(Converter->InputBuffer, BufferSize));
 
@@ -128,20 +122,21 @@ void AudioConverter_SendInput(AudioConverter* Converter, uint64_t Time, uint64_t
 	HR(IMFSample_SetSampleDuration(Converter->InputSample, MFllMulDiv(SampleCount, MF_UNITS_PER_SECOND, Converter->InputSampleRate, 0)));
 	HR(IMFSample_SetSampleTime(Converter->InputSample, MFllMulDiv(Time, MF_UNITS_PER_SECOND, TimePeriod, 0)));
 
+	// provide input to resampler
 	HR(IMFTransform_ProcessInput(Converter->Transform, 0, Converter->InputSample, 0));
 }
 
-IMFSample* AudioConverter_GetOutput(AudioConverter* Converter)
+bool AudioConverter_GetOutput(AudioConverter* Converter, IMFSample* OutputSample)
 {
 	DWORD Status;
-	MFT_OUTPUT_DATA_BUFFER Output = { .pSample = Converter->OutputSample };
+	MFT_OUTPUT_DATA_BUFFER Output = { .pSample = OutputSample };
 	HRESULT hr = IMFTransform_ProcessOutput(Converter->Transform, 0, 1, &Output, &Status);
 	if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT)
 	{
-		return NULL;
+		return false;
 	}
 	Assert(SUCCEEDED(hr));
 	Assert(Output.pEvents == NULL);
 
-	return Converter->OutputSample;
+	return true;
 }

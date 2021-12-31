@@ -1,5 +1,7 @@
 #pragma once
 
+#include "audio_converter.h"
+
 #include <windows.h>
 #include <mftransform.h>
 
@@ -10,16 +12,13 @@ typedef struct AudioEncoder AudioEncoder;
 typedef void AudioEncoder_Callback(AudioEncoder* Encoder, uint64_t Time, uint64_t TimePeriod, const void* Data, const uint32_t Size);
 
 typedef struct AudioEncoder {
-	IMFTransform* Resampler;
+
+	AudioConverter Converter;
+
 	IMFTransform* Encoder;
-
 	IMFSample* InputSample;
-	IMFMediaBuffer* InputBuffer;
-
-	IMFSample* ResampledSample;
-	IMFMediaBuffer* ResampledBuffer;
-
 	IMFSample* OutputSample;
+	IMFMediaBuffer* InputBuffer;
 	IMFMediaBuffer* OutputBuffer;
 
 	uint32_t FrameSize;
