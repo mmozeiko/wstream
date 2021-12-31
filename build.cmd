@@ -17,10 +17,10 @@ if "%VSCMD_ARG_TGT_ARCH%" neq "x64" (
 )
 
 if "%1" equ "debug" (
-  set CL=/MTd /Od /Zi /D_DEBUG /RTC1 /Fdwcap.pdb /fsanitize=address
+  set CL=/W3 /WX /MTd /Od /Zi /D_DEBUG /RTC1 /Fdwstream.pdb /fsanitize=address
   set LINK=/DEBUG libucrtd.lib libvcruntimed.lib
 ) else (
-  set CL=/GL /O1 /DNDEBUG /GS-
+  set CL=/W3 /WX /GL /O1 /DNDEBUG /GS-
   set LINK=/LTCG /OPT:REF /OPT:ICF libvcruntime.lib
 )
 
