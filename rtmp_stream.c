@@ -539,7 +539,7 @@ static bool RTMP__DoHandshake(SOCKET Socket, RtmpStream* Stream)
 
 	// RTMP_PACKET_SET_CHUNK_SIZE
 	{
-		RTMP_DEBUG("Setting SetChunkSIze to %u", RTMP_OUT_CHUNK_SIZE);
+		RTMP_DEBUG("Setting SetChunkSize to %u", RTMP_OUT_CHUNK_SIZE);
 
 		uint8_t Payload[4];
 		uint8_t* Ptr = Payload;
