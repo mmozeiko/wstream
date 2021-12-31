@@ -123,17 +123,18 @@ static void VideoEncoder_OnFrame(VideoEncoder* Encoder, uint64_t DecodeTime, uin
 	}
 }
 
-static void AudioCapture_OnData(AudioCapture* Capture, uint64_t Time, uint64_t TimePeriod, const void* Samples, uint32_t SampleCount)
+static void AudioCapture_OnData(AudioCapture* Capture, const AudioCaptureData* Data)
 {
 	WStream* W = CONTAINING_RECORD(Capture, WStream, AudioCapture);
 
+	uint64_t Time = Data->Time;
 	if (W->AudioStart == 0)
 	{
 		W->AudioStart = Time;
 	}
 	Time -= W->AudioStart;
 
-	AudioEncoder_Input(&W->AudioEncoder, Time, TimePeriod, Samples, SampleCount);
+	AudioEncoder_Input(&W->AudioEncoder, Time, W->Freq.QuadPart, /* Data->Discontinuity, */ Data->Samples, Data->SampleCount);
 }
 
 static void AudioEncoder_OnData(AudioEncoder* Encoder, uint64_t Time, uint64_t TimePeriod, const void* Data, const uint32_t Size)
@@ -220,12 +221,12 @@ void mainCRTStartup()
 	VideoEncoder_Init(&W.VideoEncoder, Device, &VideoEnc, &VideoEncoder_OnFrame);
 
 	// initializes audio capture, after this call captured format will be available in W.AudioCapture.RecordFormat
-	AudioCapture_Init(&W.AudioCapture, &AudioCapture_OnData);
+	AudioCapture_Create(&W.AudioCapture, &AudioCapture_OnData);
 
 	// setup encoder
 	AudioEncoderConfig AudioEnc =
 	{
-		.Format = W.AudioCapture.RecordFormat,
+		.Format = W.AudioCapture.Format,
 		.Bitrate = AUDIO_BITRATE,
 	};
 	AudioEncoder_Init(&W.AudioEncoder, &AudioEnc, &AudioEncoder_OnData);
@@ -238,7 +239,7 @@ void mainCRTStartup()
 
 	// start the actual capture
 	VideoCapture_Start(&W.VideoCapture, true);
-	AudioCapture_Run(&W.AudioCapture);
+	AudioCapture_Start(&W.AudioCapture);
 
 	// send configuration packets to rtmp server - this includes video & audio stream configuration
 	uint8_t VideoHeader[1024];
@@ -272,6 +273,8 @@ void mainCRTStartup()
 
 	// TODO: proper shutdown
 	RTMP_Done(&W.Stream);
+
+	AudioCapture_Destroy(&W.AudioCapture);
 
 	ExitProcess(0);
 }
