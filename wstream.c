@@ -66,16 +66,17 @@ static void print(const char* msg, ...)
 	va_end(args);
 }
 
-static void VideoCapture_OnClose(VideoCapture* Capture)
-{
-	WStream* W = CONTAINING_RECORD(Capture, WStream, VideoCapture);
-	// TODO: stop everything
-}
-
-static void VideoCapture_OnFrame(VideoCapture* Capture, ID3D11Texture2D* Texture, const RECT* Rect, uint64_t Time)
+static void VideoCapture_OnData(VideoCapture* Capture, const VideoCaptureData* Data)
 {
 	WStream* W = CONTAINING_RECORD(Capture, WStream, VideoCapture);
 	
+	if (!Data)
+	{
+		// TODO: window closed;
+		return;
+	}
+
+	uint64_t Time = Data->Time;
 	if (W->VideoStart == 0)
 	{
 		W->VideoStart = Time;
@@ -102,7 +103,7 @@ static void VideoCapture_OnFrame(VideoCapture* Capture, ID3D11Texture2D* Texture
 
 	if (DoEncode)
 	{
-		if (!VideoEncoder_Encode(&W->VideoEncoder, Time, W->Freq.QuadPart, Rect, Texture))
+		if (!VideoEncoder_Encode(&W->VideoEncoder, Time, W->Freq.QuadPart, &Data->Rect, Data->Texture))
 		{
 			print("VideoEncoder: dropped frame\n");
 		}
@@ -201,11 +202,11 @@ void mainCRTStartup()
 	RTMP_Init(&W.Stream, StreamUrl, StreamKey, STREAM_BUFFER_SIZE);
 
 	// initialize video capture
-	VideoCapture_Init(&W.VideoCapture, &VideoCapture_OnClose, &VideoCapture_OnFrame);
+	VideoCapture_Init();
 
 	// currently run on specific monitor, after this call size will be available in W.VideoCapture.Rect member
-	bool OK = VideoCapture_CreateForMonitor(&W.VideoCapture, Device, Monitor, NULL);
-	Assert(OK);
+	bool ok = VideoCapture_CreateForMonitor(&W.VideoCapture, Device, Monitor, NULL, true, &VideoCapture_OnData);
+	Assert(ok);
 
 	// setup encoder - currently always scales to specified width/height at specific framerate
 	VideoEncoderConfig VideoEnc =
@@ -275,6 +276,9 @@ void mainCRTStartup()
 	RTMP_Done(&W.Stream);
 
 	AudioCapture_Destroy(&W.AudioCapture);
+	VideoCapture_Destroy(&W.VideoCapture);
+
+	VideoCapture_Done();
 
 	ExitProcess(0);
 }
