@@ -24,5 +24,8 @@ if "%1" equ "debug" (
   set LINK=/LTCG /OPT:REF /OPT:ICF libvcruntime.lib
 )
 
+fxc.exe /nologo /T cs_5_0 /E Resize  /O3 /WX /Fh video_converter_resize_shader.h  /Vn ResizeShaderBytes  /Qstrip_reflect /Qstrip_debug /Qstrip_priv video_converter.hlsl
+fxc.exe /nologo /T cs_5_0 /E Convert /O3 /WX /Fh video_converter_convert_shader.h /Vn ConvertShaderBytes /Qstrip_reflect /Qstrip_debug /Qstrip_priv video_converter.hlsl
+
 cl.exe /nologo /MP *.c /Fewstream.exe /link /INCREMENTAL:NO /MANIFEST:EMBED /MANIFESTINPUT:wstream.manifest /SUBSYSTEM:CONSOLE /FIXED /merge:_RDATA=.rdata
 del *.obj *.res >nul

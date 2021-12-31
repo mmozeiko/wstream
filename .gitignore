@@ -3,3 +3,4 @@
 *.pdb
 *.lib
 *.exp
+*_shader.h
