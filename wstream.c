@@ -135,19 +135,20 @@ static void AudioCapture_OnData(AudioCapture* Capture, const AudioCaptureData* D
 	}
 	Time -= W->AudioStart;
 
-	AudioEncoder_Input(&W->AudioEncoder, Time, W->Freq.QuadPart, /* Data->Discontinuity, */ Data->Samples, Data->SampleCount);
-}
+	AudioEncoder_ProcessInput(&W->AudioEncoder, Time, W->Freq.QuadPart, Data->Samples, Data->SampleCount);
 
-static void AudioEncoder_OnData(AudioEncoder* Encoder, uint64_t Time, uint64_t TimePeriod, const void* Data, const uint32_t Size)
-{
-	WStream* W = CONTAINING_RECORD(Encoder, WStream, AudioEncoder);
-
-	uint64_t t = Time * 1000 / TimePeriod;
-	print("A: %u.%03u (%u bytes)\n", (uint32_t)(t / 1000), (uint32_t)(t % 1000), Size);
-
-	if (!RTMP_SendAudio(&W->Stream, Time, TimePeriod, Data, Size))
+	AudioEncoderOutput EncoderOutput;
+	while (AudioEncoder_GetOutput(&W->AudioEncoder, &EncoderOutput))
 	{
-		print("RTMP: dropped audio packet\n");
+		uint64_t t = EncoderOutput.Time * 1000 / EncoderOutput.TimePeriod;
+		print("A: %u.%03u (%u bytes)\n", (uint32_t)(t / 1000), (uint32_t)(t % 1000), EncoderOutput.Size);
+
+		if (!RTMP_SendAudio(&W->Stream, EncoderOutput.Time, EncoderOutput.TimePeriod, EncoderOutput.Data, EncoderOutput.Size))
+		{
+			print("RTMP: dropped audio packet\n");
+		}
+
+		AudioEncoder_ReleaseOutput(&W->AudioEncoder);
 	}
 }
 
@@ -227,10 +228,13 @@ void mainCRTStartup()
 	// setup encoder
 	AudioEncoderConfig AudioEnc =
 	{
-		.Format = W.AudioCapture.Format,
-		.Bitrate = AUDIO_BITRATE,
+		.InputFormat = W.AudioCapture.Format,
+		.Codec = AUDIO_ENCODER_AAC,
+		.OutputChannels = 2,
+		.OutputSampleRate = AUDIO_RATE,
+		.BitrateKbits = AUDIO_BITRATE,
 	};
-	AudioEncoder_Init(&W.AudioEncoder, &AudioEnc, &AudioEncoder_OnData);
+	AudioEncoder_Create(&W.AudioEncoder, &AudioEnc);
 
 	// wait until rtmp protocol finishes handshake and is ready to accept data
 	while (!RTMP_IsStreaming(&W.Stream))
@@ -274,6 +278,8 @@ void mainCRTStartup()
 
 	// TODO: proper shutdown
 	RTMP_Done(&W.Stream);
+
+	AudioEncoder_Destroy(&W.AudioEncoder);
 
 	AudioCapture_Destroy(&W.AudioCapture);
 	VideoCapture_Destroy(&W.VideoCapture);

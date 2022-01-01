@@ -11,7 +11,6 @@ typedef struct {
 	void* Samples;
 	uint32_t SampleCount;
 	uint64_t Time;
-	bool Discontinuity;
 } AudioCaptureData;
 
 typedef struct AudioCapture AudioCapture;

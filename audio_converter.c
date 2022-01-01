@@ -21,6 +21,8 @@
 
 #define MF_UNITS_PER_SECOND 10000000ULL
 
+// https://docs.microsoft.com/en-us/windows/win32/medfound/audioresampler
+
 void AudioConverter_Create(AudioConverter* Converter, const WAVEFORMATEX* InputFormat, uint32_t MaxInputSampleCount, uint32_t OutputChannels, uint32_t OutputSampleRate)
 {
 	HR(MFStartup(MF_VERSION, MFSTARTUP_LITE));

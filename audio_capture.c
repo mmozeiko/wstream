@@ -50,7 +50,6 @@ static DWORD WINAPI AudioCapture__Thread(LPVOID Arg)
 				.Samples = Buffer,
 				.SampleCount = FrameCount,
 				.Time = Position,
-				.Discontinuity = !!(Flags & AUDCLNT_BUFFERFLAGS_SILENT),
 			};
 			Capture->OnData(Capture, &Data);
 
@@ -163,7 +162,6 @@ bool AudioCapture_GetData(AudioCapture* Capture, AudioCaptureData* Data)
 	Data->Samples = Buffer;
 	Data->SampleCount = FrameCount;
 	Data->Time = Position;
-	Data->Discontinuity = !!(Flags & AUDCLNT_BUFFERFLAGS_SILENT);
 	return true;
 }
 
